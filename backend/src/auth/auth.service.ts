@@ -53,6 +53,10 @@ export class AuthService {
       sub: user.id,
       username: user.usuario,
       regra: user.regra,
+      // Ancora o teto nominal da sessão. A renovação deslizante recria `iat` e
+      // `exp` a cada renovação, então só um campo próprio preserva o instante
+      // do login original.
+      authTime: Math.floor(Date.now() / 1000),
     };
 
     const isAdmin = user.regra === 'ADMIN';

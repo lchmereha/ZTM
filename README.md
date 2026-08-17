@@ -356,5 +356,3 @@ ZTM/
 
 - **[Manual do Usuário](docs/manual-usuario/README.md)** — Guia completo de uso do sistema
 - **[Codemaps](docs/CODEMAPS/INDEX.md)** — Mapas de navegação do código-fonte
-#   Z T M  
- 

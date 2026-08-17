@@ -44,7 +44,13 @@ x-backend-env: &backend-env
   DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-10}
 
   JWT_SECRET: ${JWT_SECRET:?}
+  # Vida de cada token. O interceptor deslizante renova a partir da metade
+  # dela, então usuário ativo não é deslogado no meio do turno.
   JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+  # Teto nominal da sessão, contado do login original — a renovação
+  # deslizante para aqui. Sem ele, quem fizesse um request por dia ficaria
+  # logado para sempre, e um token roubado valeria para sempre também.
+  SESSION_ABSOLUTE_TTL: ${SESSION_ABSOLUTE_TTL:-30d}
 
   ADMIN_USERNAME: ${ADMIN_USERNAME:?}
   ADMIN_PASSWORD: ${ADMIN_PASSWORD:?}
@@ -81,6 +87,11 @@ services:
     restart: always
     # Sem `ports:`: o banco só é alcançável de dentro da stack. Publicar 3306
     # o exporia na internet, já que a VM tem IP público.
+    #
+    # Estas variáveis criam o banco e o usuário, e só valem no primeiro boot
+    # (volume `db_data` vazio). Depois disso o entrypoint do MySQL as ignora —
+    # se elas divergirem da DATABASE_URL, o sintoma é "Access denied" e a
+    # correção exige apagar o volume, não editar a variável.
     environment:
       MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS:?}
       MYSQL_DATABASE: ${DB_NAME:?}

@@ -1,9 +1,9 @@
 # Deploy no Coolify (VM Oracle)
 
-Guia do deploy de produção via **Coolify**, usando
-`docker-compose-coolify.yml`. A variante AWS
-(`docker-compose-production.yml`, Traefik próprio + Let's Encrypt) segue
-válida como caminho alternativo — não é substituída por este documento.
+Guia do deploy de produção via **Coolify**, usando `docker-compose-coolify.yml`.
+A variante AWS (`docker-compose-production.yml`, Traefik próprio + Let's
+Encrypt) segue válida como caminho alternativo — não é substituída por este
+documento.
 
 ---
 
@@ -12,29 +12,29 @@ válida como caminho alternativo — não é substituída por este documento.
 Entender estes quatro pontos evita a maior parte dos deploys quebrados:
 
 1. **O proxy é dele.** O Coolify já roda um Traefik (ou Caddy) ocupando as
-   portas 80 e 443 do host, e gera os labels de roteamento a partir do
-   domínio que você configura na UI. Um serviço Traefik dentro do seu compose
-   colide nas portas e o deploy falha.
+   portas 80 e 443 do host, e gera os labels de roteamento a partir do domínio
+   que você configura na UI. Um serviço Traefik dentro do seu compose colide nas
+   portas e o deploy falha.
 2. **A rede é dele.** Cada stack recebe uma bridge isolada, à qual o proxy é
    conectado. Rede declarada à mão na compose deixa o Traefik inalcançável e
-   produz 504 intermitente. Dentro da stack, os serviços se resolvem pelo
-   nome (`db`, `backend`) normalmente.
-3. **As variáveis vêm da UI, não de arquivos.** O Coolify monta um único
-   `.env` com todas as variáveis da aplicação e o anexa como `env_file` a
-   **todos** os containers da stack. `${VAR}` no compose é interpolado com
-   esses valores. `env_file: ./backend/.env.production` não funciona — o
-   arquivo é gitignored e não existe no clone que o Coolify faz.
-4. **Build e runtime são fases distintas.** Cada variável tem os flags *Build*
-   e *Runtime* independentes. Variável de build vira `--build-arg`/`ARG`;
-   variável de runtime só chega ao container. Isso importa para o frontend:
-   tudo que o Vite injeta (`VITE_*`) é congelado no bundle em tempo de build.
+   produz 504 intermitente. Dentro da stack, os serviços se resolvem pelo nome
+   (`db`, `backend`) normalmente.
+3. **As variáveis vêm da UI, não de arquivos.** O Coolify monta um único `.env`
+   com todas as variáveis da aplicação e o anexa como `env_file` a **todos** os
+   containers da stack. `${VAR}` no compose é interpolado com esses valores.
+   `env_file: ./backend/.env.production` não funciona — o arquivo é gitignored e
+   não existe no clone que o Coolify faz.
+4. **Build e runtime são fases distintas.** Cada variável tem os flags _Build_ e
+   _Runtime_ independentes. Variável de build vira `--build-arg`/`ARG`; variável
+   de runtime só chega ao container. Isso importa para o frontend: tudo que o
+   Vite injeta (`VITE_*`) é congelado no bundle em tempo de build.
 
 ---
 
 ## Topologia: um domínio só
 
-Só o **frontend** recebe domínio. A API é servida pelo mesmo host em
-`/ztm/api`, pelo proxy reverso do nginx do frontend (`nginx.conf.template`).
+Só o **frontend** recebe domínio. A API é servida pelo mesmo host em `/ztm/api`,
+pelo proxy reverso do nginx do frontend (`nginx.conf.template`).
 
 ```
 internet ──▶ Traefik do Coolify ──▶ nginx (frontend :8080) ──┬─▶ SPA em /ztm/
@@ -51,9 +51,9 @@ Consequências, todas desejáveis:
   porque lá app e API ficam em domínios registráveis distintos).
 - `TRUSTED_PROXY_HOPS=2`, porque agora há **dois** proxies à frente da API.
 
-O app mobile funciona nessa topologia: a tela de configurações aceita
-protocolo, host, porta e *endpoint*. Configure `https` / `<seu-domínio>` /
-porta vazia / `/ztm/api`.
+O app mobile funciona nessa topologia: a tela de configurações aceita protocolo,
+host, porta e _endpoint_. Configure `https` / `<seu-domínio>` / porta vazia /
+`/ztm/api`.
 
 ---
 
@@ -61,18 +61,18 @@ porta vazia / `/ztm/api`.
 
 ### 1. Criar o recurso
 
-`+ New` → **Application** → o repositório Git do projeto → build pack
-**Docker Compose**.
+`+ New` → **Application** → o repositório Git do projeto → build pack **Docker
+Compose**.
 
-| Campo | Valor |
-|---|---|
-| Base Directory | `/` |
+| Campo                   | Valor                         |
+| ----------------------- | ----------------------------- |
+| Base Directory          | `/`                           |
 | Docker Compose Location | `/docker-compose-coolify.yml` |
-| Branch | `main` |
+| Branch                  | `main`                        |
 
-A extensão precisa bater exatamente, senão o Coolify não carrega o arquivo.
-Ao salvar, ele faz o parse e cria automaticamente as entradas de variável
-para cada `${VAR}` encontrado.
+A extensão precisa bater exatamente, senão o Coolify não carrega o arquivo. Ao
+salvar, ele faz o parse e cria automaticamente as entradas de variável para cada
+`${VAR}` encontrado.
 
 ### 2. Preencher as variáveis
 
@@ -85,6 +85,16 @@ substituindo os valores. Deixe todas como **Build + Runtime** (o padrão).
 APP_DOMAIN=app.seudominio.com.br
 
 # ── MySQL (serviço `db` da stack) ────────────────────────────────
+# Credenciais do banco que a stack CRIA — não de um banco existente. O
+# container oficial do MySQL lê estas variáveis e cria o banco e o usuário.
+#
+# ⚠️ Ele só faz isso no PRIMEIRO boot, com o volume `db_data` vazio. Corrigir
+# uma destas variáveis depois não tem efeito: o entrypoint as ignora quando o
+# diretório de dados já existe, e o backend fica em "Access denied" até o
+# volume ser apagado. Confira os valores ANTES do primeiro deploy.
+#
+# Use senha apenas com letras e números: a DATABASE_URL abaixo repete esta
+# senha e caracteres especiais exigiriam percent-encoding só de um lado.
 DB_NAME=rfid_db
 DB_USER=ztm_app
 DB_PASS=troque-esta-senha
@@ -102,7 +112,12 @@ SHADOW_DATABASE_URL=mysql://root:troque-esta-senha-root@db:3306/prisma_shadow
 
 # Gere um novo: `openssl rand -hex 32`. NÃO reaproveite o do repositório.
 JWT_SECRET=
+
+# Sessão: JWT_EXPIRES_IN é a vida de cada token e o interceptor deslizante
+# renova a partir da metade dela (12h com 1d). SESSION_ABSOLUTE_TTL é o teto
+# nominal contado do login original, onde a renovação para de propósito.
 JWT_EXPIRES_IN=1d
+SESSION_ABSOLUTE_TTL=30d
 
 # Primeiro acesso ao sistema, criado pelo seed.
 ADMIN_USERNAME=ZZADMIN
@@ -120,21 +135,20 @@ propriedades da topologia e não configuração de instalação.
 
 ### 3. Configurar o domínio do frontend
 
-O compose declara `SERVICE_FQDN_FRONTEND_8080` no serviço `frontend`. Depois
-do primeiro parse, o Coolify expõe esse domínio para edição (na aba de
-domínios do serviço, ou como variável). Preencha com
-`https://app.seudominio.com.br` — o mesmo valor de `APP_DOMAIN`, agora com
-esquema.
+O compose declara `SERVICE_FQDN_FRONTEND_8080` no serviço `frontend`. Depois do
+primeiro parse, o Coolify expõe esse domínio para edição (na aba de domínios do
+serviço, ou como variável). Preencha com `https://app.seudominio.com.br` — o
+mesmo valor de `APP_DOMAIN`, agora com esquema.
 
 O `db` e o `backend` não recebem domínio de propósito: ficam apenas na rede
 interna da stack.
 
 ### 4. Antes do primeiro deploy
 
-- Registro DNS **A** de `APP_DOMAIN` apontando para o IP público da VM. O
-  Let's Encrypt valida por ele; sem DNS propagado não há certificado.
-- Portas 80 e 443 liberadas nos dois lugares: **Security List / NSG** da VCN
-  na console da Oracle **e** no firewall da própria VM. Imagens Oracle Linux e
+- Registro DNS **A** de `APP_DOMAIN` apontando para o IP público da VM. O Let's
+  Encrypt valida por ele; sem DNS propagado não há certificado.
+- Portas 80 e 443 liberadas nos dois lugares: **Security List / NSG** da VCN na
+  console da Oracle **e** no firewall da própria VM. Imagens Oracle Linux e
   Ubuntu da OCI vêm com regras `iptables` que descartam tudo fora do 22 —
   liberar só na console não basta.
 
@@ -142,11 +156,11 @@ interna da stack.
 
 `Deploy`. A ordem esperada nos logs:
 
-1. `db` sobe e fica *healthy*.
-2. `backend-migrate` roda `prisma migrate deploy` + seed e **sai com código
-   0**. Terminar é o comportamento correto: por isso o serviço tem
+1. `db` sobe e fica _healthy_.
+2. `backend-migrate` roda `prisma migrate deploy` + seed e **sai com código 0**.
+   Terminar é o comportamento correto: por isso o serviço tem
    `exclude_from_hc: true`, senão o Coolify marcaria a stack como unhealthy.
-3. `backend` sobe e fica *healthy*.
+3. `backend` sobe e fica _healthy_.
 4. `frontend` sobe; o Traefik do Coolify emite o certificado.
 
 ### 6. Validar
@@ -168,21 +182,20 @@ curl -I https://app.seudominio.com.br/ztm/mobile
 
 **Trocar o backend do frontend, a versão exibida ou o base path** exige
 **rebuild**, não redeploy: esses valores vêm de `frontend/.env.coolify` e são
-embutidos no bundle pelo Vite em tempo de build. Edite o arquivo, commit,
-e faça deploy com cache limpo se necessário.
+embutidos no bundle pelo Vite em tempo de build. Edite o arquivo, commit, e faça
+deploy com cache limpo se necessário.
 
 **As migrations rodam a cada deploy**, no `backend-migrate`. O seed é
 idempotente para o admin; conferir isso antes de habilitar `SEED_DEMO`.
 
-**Backup do banco.** O `db_data` é um volume Docker gerenciado pelo Coolify.
-Um volume vive na VM: snapshot da instância na OCI não é backup de banco.
-Configure `mysqldump` agendado antes de haver dado real em produção.
+**Backup do banco.** O `db_data` é um volume Docker gerenciado pelo Coolify. Um
+volume vive na VM: snapshot da instância na OCI não é backup de banco. Configure
+`mysqldump` agendado antes de haver dado real em produção.
 
-**Se entrar Cloudflare (proxy laranja) na frente**, passe
-`TRUSTED_PROXY_HOPS` para `3` no compose — o valor errado para baixo faz o
-`ThrottlerGuard` tratar a planta inteira como um cliente só e devolver 429
-indevido a 60 req/min; para cima, permite forjar `X-Forwarded-For` e furar o
-limite.
+**Se entrar Cloudflare (proxy laranja) na frente**, passe `TRUSTED_PROXY_HOPS`
+para `3` no compose — o valor errado para baixo faz o `ThrottlerGuard` tratar a
+planta inteira como um cliente só e devolver 429 indevido a 60 req/min; para
+cima, permite forjar `X-Forwarded-For` e furar o limite.
 
 ---
 

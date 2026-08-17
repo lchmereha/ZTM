@@ -13,9 +13,7 @@
 # .env da raiz: credenciais do MySQL e domínios de produção.
 # Os *.example ficam versionados de propósito — são o template.
 .env
-.env.local
-.env.production
-.env.development
+.env.*
 !.env.example
 !.env.*.example
 

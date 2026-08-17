@@ -10,7 +10,12 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
-import { CookieOptions, Response } from 'express';
+import { Response } from 'express';
+import {
+  ONE_DAY_MS,
+  buildSessionCookieOptions,
+  parseDurationToMs,
+} from '../common/helpers/session.helper';
 import { AuthenticatedRequest } from '../common/interfaces/authenticated-request.interface';
 import { AuthService } from './auth.service';
 import { Public } from './decorators/public.decorator';
@@ -37,11 +42,12 @@ export class AuthController {
     // rememberMe=true  → persistent cookie with maxAge (survives browser close)
     // rememberMe=false → session cookie without maxAge (dies on browser close)
     const rememberMe = loginDto.rememberMe !== false; // default true
-    const cookieOptions = this.buildCookieOptions();
+    const cookieOptions = buildSessionCookieOptions(this.config);
 
     if (rememberMe) {
-      cookieOptions.maxAge = this.parseTtlToMs(
+      cookieOptions.maxAge = parseDurationToMs(
         this.config.get<string>('JWT_EXPIRES_IN', '1d'),
+        ONE_DAY_MS,
       );
     }
 
@@ -59,50 +65,7 @@ export class AuthController {
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   logout(@Res({ passthrough: true }) res: Response) {
-    res.clearCookie('access_token', this.buildCookieOptions());
+    res.clearCookie('access_token', buildSessionCookieOptions(this.config));
     return { message: 'Logout realizado com sucesso' };
-  }
-
-  /**
-   * Opções do cookie de sessão.
-   *
-   * `COOKIE_SAMESITE` precisa ser `none` quando o frontend e a API ficam em
-   * domínios registráveis diferentes (ex.: app.exemplo.com.br chamando
-   * api.outrodominio.com) — com `lax` o browser não envia o cookie em XHR
-   * cross-site e a autenticação simplesmente não funciona. Subdomínios do
-   * mesmo domínio continuam sendo same-site, e aí `lax` basta.
-   *
-   * `SameSite=None` só é aceito pelos browsers junto de `Secure`, então essa
-   * combinação é forçada aqui em vez de depender de duas variáveis coerentes.
-   */
-  private buildCookieOptions(): CookieOptions {
-    const sameSite = this.config
-      .get<string>('COOKIE_SAMESITE', 'lax')
-      .toLowerCase() as CookieOptions['sameSite'];
-    const secure =
-      sameSite === 'none' ||
-      this.config.get<string>('COOKIE_SECURE', 'false') === 'true';
-
-    return { httpOnly: true, secure, sameSite, path: '/' };
-  }
-
-  /**
-   * Converte duração JWT (ex: "1d", "12h", "30m") em milissegundos para maxAge do cookie.
-   */
-  private parseTtlToMs(ttl: string): number {
-    const match = ttl.match(/^(\d+)([smhd])$/);
-    if (!match) return 86400000; // fallback: 1 dia
-
-    const value = parseInt(match[1], 10);
-    const unit = match[2];
-
-    const multipliers: Record<string, number> = {
-      s: 1000,
-      m: 60 * 1000,
-      h: 60 * 60 * 1000,
-      d: 24 * 60 * 60 * 1000,
-    };
-
-    return value * (multipliers[unit] ?? 86400000);
   }
 }

@@ -7,23 +7,32 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { Observable, tap } from 'rxjs';
+import {
+  ONE_DAY_MS,
+  buildSessionCookieOptions,
+  isSessionPastAbsoluteLimit,
+  parseDurationToMs,
+} from '../helpers/session.helper';
 
 /**
  * Sliding Token Interceptor
  *
- * Implements "sliding expiration" for JWT tokens. When a request arrives with
- * a valid token that has passed the halfway point of its lifetime, a fresh
- * token is generated and returned — either as an updated httpOnly cookie
- * (for web clients) or in the `X-Refreshed-Token` header (for mobile/API).
+ * Implementa expiração deslizante do JWT. Quando um request chega com token
+ * válido que já passou da metade da vida, um token novo é devolvido — como
+ * cookie httpOnly atualizado (web) ou no header `X-Refreshed-Token`
+ * (mobile/API). Usuário ativo não é deslogado no meio do turno.
  *
- * This ensures that active users never get logged out unexpectedly — the token
- * only truly expires after a period of complete inactivity.
+ * Exemplo com JWT_EXPIRES_IN=1d:
+ *   - Token emitido às 08:00, expira às 08:00 do dia seguinte (24h)
+ *   - Metade da vida: 20:00 do mesmo dia (12h)
+ *   - Qualquer request depois das 20:00 devolve um token novo
+ *   - Sem nenhum request por 24h, a sessão cai
  *
- * Example with JWT_EXPIRES_IN=1d:
- *   - Token issued at 08:00, expires at 08:00 next day (24h)
- *   - Halfway point: 20:00 same day (12h)
- *   - Any request after 20:00 will return a fresh token
- *   - If user doesn't make any request for 24h, they're logged out
+ * A renovação NÃO é ilimitada: `SESSION_ABSOLUTE_TTL` (default 30d) é o teto
+ * nominal contado a partir do login original (`authTime`). Passado o teto a
+ * renovação para, o token corrente expira sozinho e o usuário refaz login.
+ * Sem esse teto, quem fizesse um request por dia ficaria logado para sempre —
+ * e um token roubado valeria para sempre também.
  */
 @Injectable()
 export class SlidingTokenInterceptor implements NestInterceptor {
@@ -61,47 +70,35 @@ export class SlidingTokenInterceptor implements NestInterceptor {
           const elapsed = now - decoded.iat;
 
           // Renew only if past the halfway point
-          if (elapsed > totalLifetime / 2) {
-            const { iat, exp, ...payload } = decoded as Record<string, unknown>;
-            void iat;
-            void exp; // stripped from payload intentionally
-            const newToken = this.jwtService.sign(payload);
+          if (elapsed <= totalLifetime / 2) return;
 
-            if (isCookieAuth) {
-              // SEC-06: Renew via cookie for web clients
-              response.cookie('access_token', newToken, {
-                httpOnly: true,
-                secure:
-                  this.config.get<string>('COOKIE_SECURE', 'false') === 'true',
-                sameSite: 'lax',
-                path: '/',
-                maxAge: this.parseTtlToMs(
-                  this.config.get<string>('JWT_EXPIRES_IN', '1d'),
-                ),
-              });
-            } else {
-              // Renew via header for mobile/API clients
-              response.setHeader('X-Refreshed-Token', newToken);
-            }
+          // Passado o teto nominal, deixa o token corrente morrer de velho.
+          if (isSessionPastAbsoluteLimit(decoded.authTime, this.config)) return;
+
+          // `iat`/`exp` saem para o `sign()` reemitir; `authTime` fica no
+          // payload de propósito, senão cada renovação zeraria o teto.
+          const { iat, exp, ...payload } = decoded as Record<string, unknown>;
+          void iat;
+          void exp;
+          const newToken = this.jwtService.sign(payload);
+
+          if (isCookieAuth) {
+            // SEC-06: Renew via cookie for web clients
+            response.cookie('access_token', newToken, {
+              ...buildSessionCookieOptions(this.config),
+              maxAge: parseDurationToMs(
+                this.config.get<string>('JWT_EXPIRES_IN', '1d'),
+                ONE_DAY_MS,
+              ),
+            });
+          } else {
+            // Renew via header for mobile/API clients
+            response.setHeader('X-Refreshed-Token', newToken);
           }
         } catch {
           // Token verify failed — skip silently, the guard will handle auth
         }
       }),
     );
-  }
-
-  private parseTtlToMs(ttl: string): number {
-    const match = ttl.match(/^(\d+)([smhd])$/);
-    if (!match) return 86400000;
-    const value = parseInt(match[1], 10);
-    const unit = match[2];
-    const multipliers: Record<string, number> = {
-      s: 1000,
-      m: 60 * 1000,
-      h: 60 * 60 * 1000,
-      d: 24 * 60 * 60 * 1000,
-    };
-    return value * (multipliers[unit] ?? 86400000);
   }
 }

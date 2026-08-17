@@ -56,4 +56,8 @@ pids
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
-/generated/prisma
+# Client do Prisma, recriado pelo `prisma generate` em todo build (ver
+# Dockerfile.production). O caminho real é src/generated — um padrão com barra
+# é ancorado no diretório deste .gitignore, então `/generated/prisma` não
+# casava com nada. Mesmo alvo do `exclude` no tsconfig.json.
+/src/generated/

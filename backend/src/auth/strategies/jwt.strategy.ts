@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { Request } from 'express';
 import { ExtractJwt, Strategy } from 'passport-jwt';
+import { isSessionPastAbsoluteLimit } from '../../common/helpers/session.helper';
 import { JwtPayload } from '../../common/interfaces/authenticated-request.interface';
 import { UsuarioRole } from '../../generated/prisma/client';
 
@@ -23,7 +24,7 @@ function extractJwtFromCookieOrHeader(req: Request): string | null {
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(config: ConfigService) {
+  constructor(private readonly config: ConfigService) {
     const secret = config.get<string>('JWT_SECRET');
     if (!secret)
       throw new Error(
@@ -37,10 +38,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   validate(payload: Record<string, unknown>): JwtPayload {
+    // O teto nominal precisa valer aqui, e não apenas na renovação deslizante:
+    // um token de `JWT_EXPIRES_IN` emitido pouco antes do teto continuaria
+    // válido depois dele se a checagem existisse só no interceptor.
+    if (isSessionPastAbsoluteLimit(payload.authTime, this.config)) {
+      throw new UnauthorizedException('Sessão expirada. Faça login novamente.');
+    }
+
     return {
       sub: payload.sub as number,
       username: payload.username as string,
       regra: payload.regra as UsuarioRole,
+      authTime: payload.authTime as number,
     };
   }
 }
