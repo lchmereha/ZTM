@@ -1,0 +1,162 @@
+# ┌──────────────────────────────────────────────────────────────────┐
+# │  Produção no Coolify (VM Oracle) — HTTPS pelo proxy do Coolify   │
+# │                                                                  │
+# │  Diferenças em relação ao docker-compose-production.yml (AWS),   │
+# │  todas exigidas pelo Coolify:                                    │
+# │                                                                  │
+# │   1. NÃO existe serviço Traefik aqui. O Coolify já roda o proxy  │
+# │      dele nas portas 80/443 do host; subir outro faz o deploy    │
+# │      falhar com "port is already allocated".                     │
+# │   2. NÃO existe a seção `networks:`. O Coolify cria uma bridge   │
+# │      própria por stack e liga nela o proxy — rede declarada à    │
+# │      mão deixa o Traefik inalcançável (504 intermitente).        │
+# │   3. NÃO existe `env_file:`. Os .env do backend não são          │
+# │      versionados (nem entram na imagem, ver .dockerignore), logo │
+# │      não existem no clone que o Coolify faz. A configuração vem  │
+# │      da aba Environment Variables da aplicação.                  │
+# │   4. O MySQL sobe aqui como serviço, porque não há RDS.          │
+# │                                                                  │
+# │  Uma única entrada DNS: só o frontend recebe domínio. A API é    │
+# │  servida pelo mesmo host em /ztm/api, pelo proxy do nginx do     │
+# │  frontend — o que dispensa segundo certificado, dispensa CORS e  │
+# │  permite `COOKIE_SAMESITE=lax`.                                  │
+# │                                                                  │
+# │  Como configurar no Coolify: ver docs/DEPLOY-COOLIFY.md          │
+# └──────────────────────────────────────────────────────────────────┘
+
+# Configuração do backend, compartilhada com o serviço de migração.
+#
+# `${VAR:?}` faz o Coolify barrar o deploy nomeando a variável que falta, em
+# vez de subir um container que só quebra no primeiro request. `${VAR:-x}`
+# declara um padrão seguro para o que é opcional.
+#
+# Atenção: o Coolify injeta TODAS as variáveis da aplicação em TODOS os
+# containers da stack. Este bloco existe para documentar o que o backend
+# realmente consome — não confie na injeção global para saber o contrato.
+x-backend-env: &backend-env
+  # Aponta para o serviço `db` abaixo. A senha precisa ser percent-encoded:
+  # `@` vira %40, `:` vira %3A — senão a URL quebra no parser do Prisma.
+  DATABASE_URL: ${DATABASE_URL:?}
+  # `prisma migrate deploy` não usa shadow database, mas o prisma.config.ts
+  # resolve env('SHADOW_DATABASE_URL') na carga e falha se ela não existir.
+  # Qualquer valor sintaticamente válido serve.
+  SHADOW_DATABASE_URL: ${SHADOW_DATABASE_URL:?}
+  DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-10}
+
+  JWT_SECRET: ${JWT_SECRET:?}
+  JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
+
+  ADMIN_USERNAME: ${ADMIN_USERNAME:?}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:?}
+
+  CEP_API_URL: ${CEP_API_URL:-https://viacep.com.br/ws}
+
+  NODE_ENV: production
+  PORT: "3000"
+
+  # Dois proxies à frente da API: Traefik do Coolify → nginx do frontend.
+  # Com valor menor, o ThrottlerGuard enxerga o IP do nginx e trata todos os
+  # coletores da planta como um cliente só (429 indevido a 60 req/min).
+  # Com valor maior, um cliente forja X-Forwarded-For e fura o limite.
+  # Se algum dia entrar Cloudflare na frente do Coolify, passa para 3.
+  TRUSTED_PROXY_HOPS: "2"
+
+  COOKIE_SECURE: "true"
+  # App e API na MESMA origem (mesmo domínio, via /ztm/api), por isso `lax`.
+  # O `none` da variante AWS só é necessário com domínios distintos.
+  COOKIE_SAMESITE: lax
+  # Mantido por segurança de camada: com same-origin o browser nem envia
+  # preflight, mas um cliente externo mal configurado passa a ser recusado.
+  ALLOWED_ORIGINS: https://${APP_DOMAIN:?}
+
+  # População de demonstração. Só habilite no ambiente de review da Play
+  # Store — nunca em ambiente de cliente.
+  SEED_DEMO: ${SEED_DEMO:-false}
+  DEMO_USERNAME: ${DEMO_USERNAME:-}
+  DEMO_PASSWORD: ${DEMO_PASSWORD:-}
+
+services:
+  db:
+    image: mysql:9.7
+    restart: always
+    # Sem `ports:`: o banco só é alcançável de dentro da stack. Publicar 3306
+    # o exporia na internet, já que a VM tem IP público.
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS:?}
+      MYSQL_DATABASE: ${DB_NAME:?}
+      MYSQL_USER: ${DB_USER:?}
+      MYSQL_PASSWORD: ${DB_PASS:?}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test:
+        ["CMD", "mysql", "-u", "root", "-p${DB_ROOT_PASS}", "-e", "SELECT 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+
+  # Roda uma vez por deploy: aplica migrations e a população inicial, depois
+  # sai com código 0. O backend só sobe depois disso, o que evita réplicas
+  # aplicando migrations em paralelo.
+  backend-migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.production
+      target: migrator
+    restart: "no"
+    # Extensão do Coolify: sem isso ele vê um container que terminou e marca
+    # a stack inteira como unhealthy, derrubando o deploy que deu certo.
+    exclude_from_hc: true
+    environment:
+      <<: *backend-env
+      RUN_MIGRATIONS: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.production
+      target: runtime
+    restart: always
+    # Sem `ports:` e sem domínio: o acesso público é pelo /ztm/api do nginx.
+    environment: *backend-env
+    depends_on:
+      backend-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 3000 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.production
+      args:
+        # `coolify` faz o Dockerfile copiar frontend/.env.coolify por cima do
+        # .env.production antes do build do Vite. É lá que mora o
+        # VITE_BACKEND_URL=/ztm/api desta topologia.
+        - APP_MODE=coolify
+        - VITE_TENANT=default
+        - APP_BASE_PATH=/ztm
+    restart: always
+    environment:
+      # Variável mágica do Coolify: ele preenche com o domínio configurado na
+      # UI e gera os labels do Traefik dele apontando para a porta 8080.
+      # Sem ela o container fica só na rede interna, sem domínio nem TLS.
+      - SERVICE_FQDN_FRONTEND_8080
+      # Lido pelo envsubst do entrypoint do nginx (ver nginx.conf.template).
+      # O NGINX_ENVSUBST_FILTER=^APP_ da imagem garante que só as APP_* sejam
+      # substituídas — as demais variáveis da stack não vazam para o conf.
+      - APP_BASE_PATH=/ztm
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  db_data:

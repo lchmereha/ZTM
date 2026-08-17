@@ -209,7 +209,8 @@ Após o primeiro seed, o sistema cria automaticamente um administrador:
 |---------|-----------|
 | `docker-compose-local.yml` | Simula produção em rede local (build otimizado) |
 | `docker-compose-development.yml` | Desenvolvimento com hot-reload |
-| `docker-compose-production.yml` | Produção em nuvem (WIP) |
+| `docker-compose-production.yml` | Produção em nuvem AWS, com Traefik próprio |
+| `docker-compose-coolify.yml` | Produção via Coolify — ver [docs/DEPLOY-COOLIFY.md](docs/DEPLOY-COOLIFY.md) |
 
 Cada ambiente tem seu próprio conjunto de `.env.*`:
 
@@ -221,7 +222,8 @@ Cada ambiente tem seu próprio conjunto de `.env.*`:
 | `backend/.env.production` | Produção |
 | `frontend/.env.local` | Frontend Docker local |
 | `frontend/.env.development` | Frontend Docker desenvolvimento |
-| `frontend/.env.production` | Frontend produção |
+| `frontend/.env.production` | Frontend produção (AWS) |
+| `frontend/.env.coolify` | Frontend produção no Coolify (API em `/ztm/api`) |
 
 ---
 
