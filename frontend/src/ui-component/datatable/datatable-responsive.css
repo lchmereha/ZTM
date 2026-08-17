@@ -1,0 +1,41 @@
+/* ── DataTable Responsive: +/− icon overrides ──────────────
+ * Replaces the default triangle arrows with +/− inside a circle.
+ * Uses CSS custom properties from the MUI theme (--palette-primary-main)
+ * so the icon always matches the app's primary colour.
+ * --------------------------------------------------------------- */
+
+/* ── Collapsed state: "+" icon ───────────────────────────── */
+table.dataTable.dtr-inline.collapsed > tbody > tr > td.dtr-control:before,
+table.dataTable.dtr-inline.collapsed > tbody > tr > th.dtr-control:before {
+  /* Reset the default triangle borders */
+  border: none !important;
+
+  /* Circle */
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background-color: var(--palette-primary-main, #d4a056);
+
+  /* "+" via content */
+  content: "+" !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--palette-primary-contrastText, #fff);
+
+  /* Spacing & vertical alignment */
+  margin-right: 0.5em;
+  vertical-align: middle;
+  box-sizing: border-box;
+}
+
+/* ── Expanded state: "−" icon ────────────────────────────── */
+table.dataTable.dtr-inline.collapsed > tbody > tr.dtr-expanded > td.dtr-control:before,
+table.dataTable.dtr-inline.collapsed > tbody > tr.dtr-expanded > th.dtr-control:before {
+  border: none !important;
+  background-color: var(--palette-primary-dark, #b8863c);
+  content: "\2212" !important; /* Unicode minus sign */
+}

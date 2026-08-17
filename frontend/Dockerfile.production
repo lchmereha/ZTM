@@ -1,0 +1,54 @@
+# Imagem única para todas as variantes de marca. A variante é escolhida em
+# tempo de build por VITE_TENANT (ver src/config/tenants).
+#
+#   default  -> --build-arg VITE_TENANT=default  --build-arg APP_MODE=local
+#   marluvas -> --build-arg VITE_TENANT=marluvas --build-arg APP_MODE=marluvas
+#                --build-arg APP_BASE_PATH=/ztm-marluvas
+
+# Stage 1: Build
+FROM node:26-alpine AS builder
+ARG APP_MODE=production
+ARG VITE_TENANT=default
+ENV VITE_TENANT=${VITE_TENANT}
+WORKDIR /app
+# O projeto declara `packageManager: yarn@4` e o yarn.lock é a fonte da verdade.
+# Usar npm aqui resolvia uma árvore de dependências diferente e o build do Vite
+# quebrava dentro do container ("Cannot convert undefined or null to object").
+# O corepack deixou de vir embutido no Node a partir da 25, por isso o install.
+RUN npm install -g corepack@latest && corepack enable
+COPY package.json yarn.lock .yarnrc.yml ./
+RUN yarn install --immutable
+COPY . .
+# O Vite só lê .env.production num build de produção, então o arquivo do
+# ambiente escolhido é copiado por cima antes de compilar.
+RUN if [ "$APP_MODE" != "production" ]; then cp ".env.$APP_MODE" .env.production; fi
+RUN yarn build
+
+# Stage 2: Serve
+FROM nginxinc/nginx-unprivileged:alpine
+ARG VITE_TENANT=default
+ARG APP_BASE_PATH=/ztm
+
+# APP_BASE_PATH é substituído pelo entrypoint da imagem no start do container.
+# O filtro impede que o envsubst apague as variáveis do próprio nginx
+# ($uri, $host, $remote_addr...).
+ENV APP_BASE_PATH=${APP_BASE_PATH}
+ENV NGINX_ENVSUBST_FILTER=^APP_
+
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+
+USER root
+# O diretório precisa existir mesmo vazio — o template faz `include` dele.
+RUN mkdir -p /etc/nginx/conf.d/extra
+COPY nginx-extra/ /tmp/nginx-extra/
+# O proxy para a variante white-label só faz sentido no container principal.
+RUN if [ "$VITE_TENANT" = "default" ]; then \
+      cp /tmp/nginx-extra/*.conf /etc/nginx/conf.d/extra/; \
+    fi; \
+    rm -rf /tmp/nginx-extra; \
+    chown -R nginx:nginx /etc/nginx/conf.d
+USER nginx
+
+COPY --from=builder /app/dist /usr/share/nginx/html
+EXPOSE 8080
+CMD ["nginx", "-g", "daemon off;"]

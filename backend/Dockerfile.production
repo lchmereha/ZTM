@@ -1,0 +1,54 @@
+# Stage 1: Build (com devDependencies)
+FROM node:26-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+# `npm ci` respeita o package-lock. `npm install` pode resolver versões
+# diferentes entre a máquina do dev e o build de produção.
+RUN npm ci
+COPY . .
+# `prisma generate` só lê o schema, mas o prisma.config.ts resolve
+# env('DATABASE_URL') na carga e falha se ela não existir. Os .env não entram
+# na imagem (ver .dockerignore), então o placeholder cobre esta etapa — a URL
+# real chega em runtime pelo env_file.
+RUN DATABASE_URL="mysql://build:build@localhost:3306/build" \
+    SHADOW_DATABASE_URL="mysql://build:build@localhost:3306/build_shadow" \
+    npx prisma generate
+RUN npm run build
+
+# Stage 2: Migrator — usado só pelo serviço one-shot de migração.
+# Precisa das devDependencies porque `prisma` (CLI) e `ts-node` (usado pelo
+# script de seed) vivem lá.
+FROM builder AS migrator
+RUN apk add --no-cache netcat-openbsd \
+ && chmod +x docker-entrypoint.sh \
+ && chown -R node:node /app
+USER node
+CMD ["./docker-entrypoint.sh"]
+
+# Stage 3: dependências de runtime, sem devDependencies
+FROM node:26-alpine AS deps
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+
+# Stage 4: Production — só serve a API.
+FROM node:26-alpine AS runtime
+WORKDIR /app
+# `nc` é usado pelo entrypoint para aguardar o banco ficar acessível.
+RUN apk add --no-cache netcat-openbsd
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/prisma.config.ts ./
+COPY --from=builder /app/src/generated ./src/generated
+COPY --from=builder /app/tsconfig.json ./
+COPY --from=builder /app/docker-entrypoint.sh ./
+RUN chmod +x docker-entrypoint.sh && chown -R node:node /app
+
+# Não rodar como root: limita o estrago de um RCE na API.
+USER node
+
+EXPOSE 3000
+CMD ["./docker-entrypoint.sh"]

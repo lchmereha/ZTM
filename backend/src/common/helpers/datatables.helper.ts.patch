@@ -1,0 +1,75 @@
+--- backend/src/common/helpers/datatables.helper.ts
++++ backend/src/common/helpers/datatables.helper.ts
+@@ -1,4 +1,5 @@
+ import { DatatablesRequestDto } from '../dto/datatables.dto';
++import { PrismaClient } from '../../generated/prisma/client';
+ 
+ /**
+  * Utilitário para extrair o orderBy do payload padrão do DataTables.net (serverSide).
+@@ -120,3 +121,68 @@
+ 
+   return select;
+ }
++
++/**
++ * Constrói a cláusula `OR` do Prisma dinamicamente a partir do searchTerm e columns,
++ * aplicando busca parcial para textos e, opcionalmente, busca parcial em números via query crua.
++ */
++export async function buildDatatablesSearch(
++  data: DatatablesRequestDto,
++  prisma: any,
++  tableName: string,
++  stringFields: string[] = [],
++  numericFields: { field: string; column: string }[] = []
++): Promise<Record<string, any>[] | undefined> {
++  const searchTerm = data.search?.value?.trim();
++  if (!searchTerm) return undefined;
++
++  const { columns } = data;
++  if (!columns || !Array.isArray(columns)) return undefined;
++
++  const orConditions: any[] = [];
++  const searchAsNumber = !isNaN(Number(searchTerm));
++
++  for (const col of columns) {
++    if (col.searchable === false) continue;
++
++    const path = col.data;
++    if (typeof path === 'string' && path.trim()) {
++      if (stringFields.includes(path)) {
++        const parts = path.split('.');
++        if (parts.length === 1) {
++          orConditions.push({ [parts[0]]: { contains: searchTerm } });
++        } else {
++          let condition: any = { contains: searchTerm };
++          for (let i = parts.length - 1; i >= 0; i--) {
++            condition = { [parts[i]]: condition };
++          }
++          orConditions.push(condition);
++        }
++      } else if (searchAsNumber) {
++        const numField = numericFields.find((f) => f.field === path);
++        if (numField) {
++          try {
++            const rows = await prisma.$queryRawUnsafe<any[]>(
++              `SELECT id FROM ${tableName} WHERE CAST(${numField.column} AS CHAR) LIKE ? LIMIT 100`,
++              `%${searchTerm}%`
++            );
++            if (rows.length > 0) {
++              const ids = rows.map((r) => r.id);
++              orConditions.push({ id: { in: ids } });
++            } else {
++              // Add an impossible condition so this field explicitly returns 0 matches for this specific search
++              orConditions.push({ id: -1 });
++            }
++          } catch (err) {
++            // Ignore db errors (e.g. table not found in raw query) and fallback
++            console.error('Error executing partial numeric search:', err);
++          }
++        }
++      }
++    }
++  }
++
++  return orConditions.length > 0 ? orConditions : undefined;
++}

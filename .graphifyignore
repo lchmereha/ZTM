@@ -1,0 +1,29 @@
+# .graphifyignore
+# Ignore every file by default, but keep descending into directories.
+# (A directory excluded outright is never traversed, so its contents
+#  could never be re-included by a later negation.)
+*
+!*/
+
+# allow frontend source
+!frontend/src/**
+!frontend-marluvas/src/**
+
+# allow backend source + prisma schema
+!backend/src/**
+!backend/prisma/**
+
+# allow mobile source
+!mobile/lib/**
+
+# hard denies last so they win over the negations above
+# Prisma's generated client: ~2.5k nodes of codegen boilerplate that swamps
+# community detection. The hand-written schema in backend/prisma/ is kept.
+backend/src/generated/
+node_modules/
+dist/
+build/
+.svn/
+.tmp/
+.vscode/
+graphify-out/

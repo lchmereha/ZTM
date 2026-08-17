@@ -1,0 +1,45 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# testing
+/coverage
+
+# production
+/build
+/dist
+
+# misc
+.DS_Store
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+/.idea/
+
+# Cobre .env, .env.local, .env.development, .env.production e afins.
+# Os *.example ficam versionados de propósito.
+# ATENÇÃO: os .env deste projeto são CONFIGURAÇÃO DE BUILD, não segredo.
+# Contêm apenas VITE_APP_VERSION, VITE_APP_BASE_NAME e VITE_BACKEND_URL, e o
+# Dockerfile.production faz `cp .env.$APP_MODE .env.production` antes do build.
+# Ignorá-los quebra o build em qualquer clone novo — por isso ficam versionados.
+#
+# Se algum dia entrar segredo aqui, ele vazaria para o bundle do navegador de
+# qualquer forma: tudo que o Vite injeta via import.meta.env é público.
+# Segredo de frontend não existe; o lugar dele é no backend.
+#
+# Só o .env sem sufixo fica de fora, por ser arquivo local de cada dev.
+.env

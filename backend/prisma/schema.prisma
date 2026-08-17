@@ -1,0 +1,336 @@
+datasource db {
+  provider = "mysql"
+}
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+// ==============================|| ENUMS ||============================== //
+
+enum OcorrenciaItem {
+  LEITURA
+  INCLUSAO
+  ENCONTRADO
+  NAO_ENCONTRADO
+}
+
+enum SituacaoMovimentacao {
+  CRIADO
+  IMPORTADO
+  PROCESSADO
+  FINALIZADO
+  CANCELADO
+}
+
+enum TipoEquipamento {
+  IMPRESSORA
+  ANTENA
+  SLED
+}
+
+enum TipoOpcaoMovimentacao {
+  IMPRESSAO
+  ASSOCIACAO
+  LEITURA
+  CONFERENCIA
+  TRANSFERENCIA
+}
+
+enum UsuarioRole {
+  OPERADOR
+  ADMIN
+}
+
+// ==============================|| MODELS ||============================== //
+
+model Categoria {
+  id        Int       @id @default(autoincrement())
+  idEmpresa Int       @map("id_empresa")
+  nome      String
+  ativo     Boolean   @default(true)
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  empresa   Empresa   @relation(fields: [idEmpresa], references: [id])
+  produtos  Produto[]
+
+  @@map("categorias")
+}
+
+model Empresa {
+  id                Int                @id @default(autoincrement())
+  nome              String
+  logo              String?            @db.LongText
+  corEsquema        String?            @map("cor_esquema")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  filiais           Filial[]
+  modelosEtiqueta   ModeloEtiqueta[]
+  categorias        Categoria[]
+  tiposMovimentacao TipoMovimentacao[]
+
+  @@map("empresas")
+}
+
+model Equipamento {
+  id                 Int             @id @default(autoincrement())
+  idFilial           Int             @map("id_filial")
+  nome               String
+  ipConexao          String?         @map("ip_conexao")
+  portaConexao       Int?            @map("porta_conexao")
+  ativo              Boolean         @default(true)
+  tipo               TipoEquipamento
+  exibeConexaoSocket Boolean         @default(false) @map("exibe_conexao_socket")
+  createdAt          DateTime        @default(now()) @map("created_at")
+  updatedAt          DateTime        @updatedAt @map("updated_at")
+  filial             Filial          @relation(fields: [idFilial], references: [id])
+  movimentacoes      Movimentacao[]
+
+  @@map("equipamentos")
+}
+
+model Filial {
+  id                     Int              @id @default(autoincrement())
+  idEmpresa              Int              @map("id_empresa")
+  nome                   String
+  endereco               String?
+  documentoIdentificacao String?          @map("documento_identificacao")
+  cidade                 String?
+  estado                 String?
+  cep                    String?
+  numeroLogradouro       String?          @map("numero_logradouro")
+  telefone               String?
+  idEtiquetaPadrao       Int?             @map("id_etiqueta_padrao")
+  createdAt              DateTime         @default(now()) @map("created_at")
+  updatedAt              DateTime         @updatedAt @map("updated_at")
+  empresa                Empresa          @relation(fields: [idEmpresa], references: [id])
+  etiquetaPadrao         ModeloEtiqueta?  @relation(fields: [idEtiquetaPadrao], references: [id])
+  usuariosPermitidos     UsuarioFilial[]
+  equipamentos           Equipamento[]
+  tagsRfid               TagRfid[]
+  movimentacoes          Movimentacao[]   @relation("MovimentacaoFilialOrigem")
+  movimentacoesDestino   Movimentacao[]   @relation("MovimentacaoFilialDestino")
+  apiKeys                ApiKey[]
+  posicoesEstoque        PosicaoEstoque[]
+
+  @@map("filiais")
+}
+
+model ImportacaoItem {
+  id             Int          @id @default(autoincrement())
+  idMovimentacao Int          @map("id_movimentacao")
+  codigo         String
+  nome           String?
+  unidadeMedida  String?      @map("unidade_medida")
+  quantidade     Int          @default(1)
+  qtdeUMVolume   Decimal?     @map("qtde_um_volume") @db.Decimal(15, 3)
+  categoria      String?
+  codigoUnico    String?      @map("codigo_unico")
+  dataValidade   DateTime?    @map("data_validade")
+  lote           String?
+  dataFabricacao DateTime?    @map("data_fabricacao")
+  posicaoEstoque String?      @map("posicao_estoque")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  movimentacao   Movimentacao @relation(fields: [idMovimentacao], references: [id], onDelete: Cascade)
+
+  @@map("importacao_itens")
+}
+
+model ModeloEtiqueta {
+  id            Int       @id @default(autoincrement())
+  idEmpresa     Int       @map("id_empresa")
+  nome          String
+  codigoZPL     String    @map("codigo_zpl") @db.Text
+  ativo         Boolean   @default(true)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  empresa       Empresa   @relation(fields: [idEmpresa], references: [id])
+  filiaisPadrao Filial[]
+  produtos      Produto[]
+
+  @@map("modelos_etiqueta")
+}
+
+model Movimentacao {
+  id                    Int                  @id @default(autoincrement())
+  idFilial              Int                  @map("id_filial")
+  idUsuario             Int?                 @map("id_usuario")
+  idTipoMovimentacao    Int                  @map("id_tipo_movimentacao")
+  idEquipamento         Int?                 @map("id_equipamento")
+  descricao             String?
+  codigoIntegracao      String?              @map("codigo_integracao")
+  situacao              SituacaoMovimentacao @default(CRIADO)
+  dataProcessamento     DateTime?            @map("data_processamento")
+  dataCancelamento      DateTime?            @map("data_cancelamento")
+  idUsuarioCancelamento Int?                 @map("id_usuario_cancelamento")
+  idFilialDestino       Int?                 @map("id_filial_destino")
+  ocultaIntegracao      Boolean              @default(false) @map("oculta_integracao")
+  createdAt             DateTime             @default(now()) @map("created_at")
+  updatedAt             DateTime             @updatedAt @map("updated_at")
+  filial                Filial               @relation("MovimentacaoFilialOrigem", fields: [idFilial], references: [id])
+  filialDestino         Filial?              @relation("MovimentacaoFilialDestino", fields: [idFilialDestino], references: [id])
+  usuario               Usuario?             @relation(fields: [idUsuario], references: [id])
+  usuarioCancelamento   Usuario?             @relation("MovimentacaoUsuarioCancelamento", fields: [idUsuarioCancelamento], references: [id])
+  tipo                  TipoMovimentacao     @relation(fields: [idTipoMovimentacao], references: [id])
+  equipamento           Equipamento?         @relation(fields: [idEquipamento], references: [id])
+  importacaoItens       ImportacaoItem[]
+  itens                 MovimentacaoItem[]
+
+  @@map("movimentacoes")
+}
+
+model MovimentacaoItem {
+  id             Int            @id @default(autoincrement())
+  idMovimentacao Int            @map("id_movimentacao")
+  idTagRfid      Int?           @map("id_tag_rfid")
+  codigoRfid     String?        @map("codigo_rfid")
+  ocorrencia     OcorrenciaItem
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+  movimentacao   Movimentacao   @relation(fields: [idMovimentacao], references: [id])
+  tagRfid        TagRfid?       @relation(fields: [idTagRfid], references: [id])
+
+  @@map("movimentacao_itens")
+}
+
+model OpcaoMenu {
+  id         Int                @id @default(autoincrement())
+  nome       String
+  chave      String             @unique
+  ativo      Boolean            @default(true)
+  createdAt  DateTime           @default(now()) @map("created_at")
+  updatedAt  DateTime           @updatedAt @map("updated_at")
+  permissoes PermissaoUsuario[]
+
+  @@map("opcoes_menu")
+}
+
+model PosicaoEstoque {
+  id        Int       @id @default(autoincrement())
+  idFilial  Int       @map("id_filial")
+  nome      String
+  ativo     Boolean   @default(true)
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  filial    Filial    @relation(fields: [idFilial], references: [id])
+  tagsRfid  TagRfid[]
+
+  @@map("posicoes_estoque")
+}
+
+model Produto {
+  id               Int             @id @default(autoincrement())
+  idEmpresa        Int             @map("id_empresa")
+  codigo           String          @unique
+  nome             String
+  unidadeMedida    String          @map("unidade_medida")
+  idCategoria      Int?            @map("id_categoria")
+  idModeloEtiqueta Int?            @map("id_modelo_etiqueta")
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+  categoria        Categoria?      @relation(fields: [idCategoria], references: [id])
+  modeloEtiqueta   ModeloEtiqueta? @relation(fields: [idModeloEtiqueta], references: [id])
+  tagsRfid         TagRfid[]
+
+  @@map("produtos")
+}
+
+model TagRfid {
+  id                Int                @id @default(autoincrement())
+  idFilial          Int                @map("id_filial")
+  idProduto         Int                @map("id_produto")
+  codigoRfid        String             @map("codigo_rfid")
+  codigoUnico       String?            @map("codigo_unico")
+  idPosicaoEstoque  Int?               @map("id_posicao_estoque")
+  dataValidade      DateTime?          @map("data_validade")
+  lote              String?
+  dataFabricacao    DateTime?          @map("data_fabricacao")
+  dataBaixa         DateTime?          @map("data_baixa")
+  qtdeUMVolume      Decimal?           @map("qtde_um_volume") @db.Decimal(15, 3)
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  filial            Filial             @relation(fields: [idFilial], references: [id])
+  produto           Produto            @relation(fields: [idProduto], references: [id])
+  posicaoEstoque    PosicaoEstoque?    @relation(fields: [idPosicaoEstoque], references: [id])
+  movimentacaoItems MovimentacaoItem[]
+
+  @@map("tags_rfid")
+}
+
+model TipoMovimentacao {
+  id            Int                   @id @default(autoincrement())
+  idEmpresa     Int                   @map("id_empresa")
+  descricao     String
+  ativo         Boolean               @default(true)
+  fazBaixa      Boolean               @default(false) @map("faz_baixa")
+  tipo          TipoOpcaoMovimentacao
+  createdAt     DateTime              @default(now()) @map("created_at")
+  updatedAt     DateTime              @updatedAt @map("updated_at")
+  empresa       Empresa               @relation(fields: [idEmpresa], references: [id])
+  movimentacoes Movimentacao[]
+
+  @@map("tipos_movimentacao")
+}
+
+model Usuario {
+  id                      Int                @id @default(autoincrement())
+  nome                    String?
+  usuario                 String             @unique
+  email                   String?            @unique
+  senha                   String
+  regra                   UsuarioRole        @default(OPERADOR)
+  ativo                   Boolean            @default(true)
+  createdAt               DateTime           @default(now()) @map("created_at")
+  updatedAt               DateTime           @updatedAt @map("updated_at")
+  filiaisPermitidas       UsuarioFilial[]
+  permissoesUsuario       PermissaoUsuario[]
+  movimentacoes           Movimentacao[]
+  movimentacoesCanceladas Movimentacao[]     @relation("MovimentacaoUsuarioCancelamento")
+  apiKeys                 ApiKey[]
+
+  @@map("usuarios")
+}
+
+// ==============================|| TABELAS RELACIONAIS ||============================== //
+
+model PermissaoUsuario {
+  idUsuario      Int       @map("id_usuario")
+  idOpcaoMenu    Int       @map("id_opcao_menu")
+  podeVisualizar Boolean   @default(false) @map("pode_visualizar")
+  podeIncluir    Boolean   @default(false) @map("pode_incluir")
+  podeAlterar    Boolean   @default(false) @map("pode_alterar")
+  podeExcluir    Boolean   @default(false) @map("pode_excluir")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  usuario        Usuario   @relation(fields: [idUsuario], references: [id])
+  opcaoMenu      OpcaoMenu @relation(fields: [idOpcaoMenu], references: [id])
+
+  @@id([idUsuario, idOpcaoMenu])
+  @@map("permissoes_usuario")
+}
+
+model UsuarioFilial {
+  idUsuario Int     @map("id_usuario")
+  idFilial  Int     @map("id_filial")
+  usuario   Usuario @relation(fields: [idUsuario], references: [id])
+  filial    Filial  @relation(fields: [idFilial], references: [id])
+
+  @@id([idUsuario, idFilial])
+  @@map("usuarios_filiais")
+}
+
+model ApiKey {
+  id        Int      @id @default(autoincrement())
+  idFilial  Int      @map("id_filial")
+  idUsuario Int      @default(1) @map("id_usuario")
+  chave     String   @unique @db.VarChar(128)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  filial    Filial   @relation(fields: [idFilial], references: [id])
+  usuario   Usuario  @relation(fields: [idUsuario], references: [id])
+
+  @@map("api_keys")
+}

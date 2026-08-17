@@ -1,0 +1,118 @@
+# ┌──────────────────────────────────────────────────────────────────┐
+# │  Servidor local (chão de fábrica) — HTTP na rede interna         │
+# │                                                                  │
+# │  `restart: unless-stopped` em tudo: a máquina do cliente é       │
+# │  desligada/religada sem aviso e a stack precisa voltar sozinha.  │
+# └──────────────────────────────────────────────────────────────────┘
+
+services:
+  db:
+    image: mysql:9.7
+    restart: unless-stopped
+    # Sem mapeamento de porta: só o backend fala com o banco. Expor 3306
+    # deixaria o MySQL alcançável por toda a rede da fábrica.
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASS}
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test:
+        ["CMD", "mysql", "-u", "root", "-p${DB_ROOT_PASS}", "-e", "SELECT 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+    networks:
+      - internal
+
+  # Aplica migrations e a população inicial uma vez, depois sai.
+  backend-migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.production
+      target: migrator
+    restart: "no"
+    env_file:
+      - ./backend/.env.local
+    environment:
+      RUN_MIGRATIONS: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - internal
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.production
+      target: runtime
+    restart: unless-stopped
+    # Sem mapeamento de porta: o acesso é pelo proxy do frontend em /ztm/api/.
+    env_file:
+      - ./backend/.env.local
+    depends_on:
+      backend-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 3000 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - internal
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.production
+      args:
+        - APP_MODE=local
+        - VITE_TENANT=default
+        - APP_BASE_PATH=/ztm
+    restart: unless-stopped
+    ports:
+      - "80:8080"
+    env_file:
+      - ./frontend/.env.local
+    # Sem depends_on do frontend-marluvas: ele é opcional (ver abaixo), e o
+    # Compose recusa dependência de serviço fora do perfil ativo. O nginx
+    # também não precisa dele para subir — ver nginx-extra/marluvas-proxy.conf.
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - internal
+
+  # Variante white-label, usada apenas em demonstração e apresentação.
+  #
+  # OPCIONAL: só sobe com COMPOSE_PROFILES=marluvas no .env da raiz.
+  # Sem essa variável, o serviço nem é criado e /ztm-marluvas/ responde 404.
+  #
+  # Mesmo código e mesmo Dockerfile do `frontend`, mudando só o VITE_TENANT.
+  # Sem porta própria — é servida pelo nginx do `frontend` em /ztm-marluvas/.
+  frontend-marluvas:
+    profiles: ["marluvas"]
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.production
+      args:
+        - APP_MODE=marluvas
+        - VITE_TENANT=marluvas
+        - APP_BASE_PATH=/ztm-marluvas
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - internal
+
+networks:
+  internal:
+
+volumes:
+  db_data:

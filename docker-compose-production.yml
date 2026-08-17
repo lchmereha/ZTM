@@ -1,0 +1,124 @@
+# ┌──────────────────────────────────────────────────────────────────┐
+# │  Produção (AWS) — HTTPS via Traefik + Let's Encrypt              │
+# │                                                                  │
+# │  Pré-requisitos antes do primeiro `up`:                          │
+# │   1. DNS de APP_DOMAIN e API_DOMAIN apontando para o IP da EC2   │
+# │   2. Portas 80 e 443 liberadas no Security Group                 │
+# │   3. .env na raiz com APP_DOMAIN, API_DOMAIN, ACME_EMAIL         │
+# │   4. backend/.env.production com a DATABASE_URL do RDS           │
+# │                                                                  │
+# │  O banco NÃO sobe aqui: em produção é RDS gerenciado. Se um dia  │
+# │  precisar de MySQL em container, use docker-compose-local.yml.   │
+# │                                                                  │
+# │  A variante white-label `frontend-marluvas` NÃO existe aqui, e   │
+# │  isso é intencional e permanente: ela serve apenas a demonstra-  │
+# │  ção local. Não adicione por simetria com o compose local.       │
+# └──────────────────────────────────────────────────────────────────┘
+
+services:
+  reverse-proxy:
+    image: traefik:v3.3
+    restart: always
+    command:
+      - "--providers.docker"
+      - "--providers.docker.exposedbydefault=false"
+      - "--api.dashboard=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entryPoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - letsencrypt:/letsencrypt
+      # Somente leitura: o Traefik só precisa descobrir containers.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - edge
+
+  # Roda uma vez por deploy: aplica migrations e a população inicial, depois sai.
+  # O backend só sobe depois que este serviço termina com sucesso, o que evita
+  # réplicas aplicando migrations em paralelo.
+  backend-migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.production
+      target: migrator
+    restart: "no"
+    env_file:
+      - ./backend/.env.production
+    environment:
+      RUN_MIGRATIONS: "true"
+    networks:
+      - internal
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.production
+      target: runtime
+    restart: always
+    depends_on:
+      backend-migrate:
+        condition: service_completed_successfully
+    env_file:
+      - ./backend/.env.production
+    environment:
+      NODE_ENV: production
+      # Traefik é o único proxy à frente da API. Sem isso o ThrottlerGuard vê
+      # o IP do proxy e trata todos os coletores da planta como um cliente só.
+      TRUSTED_PROXY_HOPS: "1"
+      COOKIE_SECURE: "true"
+      # App e API em domínios registráveis distintos ⇒ o browser trata as
+      # chamadas como cross-site e `lax` não envia o cookie de sessão.
+      COOKIE_SAMESITE: "none"
+      ALLOWED_ORIGINS: "https://${APP_DOMAIN}"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 3000 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ztm-api.rule=Host(`${API_DOMAIN}`)"
+      - "traefik.http.routers.ztm-api.entrypoints=websecure"
+      - "traefik.http.routers.ztm-api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.ztm-api.loadbalancer.server.port=3000"
+    networks:
+      - edge
+      - internal
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.production
+      args:
+        - APP_MODE=production
+        - VITE_TENANT=default
+        - APP_BASE_PATH=/ztm
+    restart: always
+    depends_on:
+      - backend
+    env_file:
+      - ./frontend/.env.production
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ztm-app.rule=Host(`${APP_DOMAIN}`)"
+      - "traefik.http.routers.ztm-app.entrypoints=websecure"
+      - "traefik.http.routers.ztm-app.tls.certresolver=letsencrypt"
+      - "traefik.http.services.ztm-app.loadbalancer.server.port=8080"
+    networks:
+      - edge
+
+networks:
+  # Só quem tem rota para o `edge` fica alcançável pelo Traefik.
+  edge:
+  internal:
+
+volumes:
+  letsencrypt:

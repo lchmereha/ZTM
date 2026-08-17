@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  O servidor do ZTM é configurado em runtime pelo operador (QR code ou aba
+  Manual) e, na implantação em chão de fábrica, é um IP privado da LAN sem
+  certificado TLS. Como as regras de <domain-config> casam por domínio e não
+  aceitam faixas CIDR, não há como enumerar os hosts permitidos aqui.
+
+  Por isso o cleartext fica permitido no nível base. Quem decide o esquema é o
+  app: SettingsService.protocolo guarda 'http' ou 'https' e HttpService monta a
+  URL a partir dele. Numa implantação HTTPS (AWS) basta configurar o protocolo
+  como https — esta política não rebaixa a conexão, apenas deixa de bloquear o
+  cenário de rede local.
+
+  cleartextTrafficPermitted=false aqui quebraria 100% das instalações locais,
+  que são a maioria dos casos de uso.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

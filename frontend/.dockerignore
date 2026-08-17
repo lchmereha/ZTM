@@ -1,0 +1,12 @@
+node_modules
+dist
+.git
+.svn
+.yarn/cache
+.yarn/install-state.gz
+# package-lock.json obsoleto: o projeto usa yarn (ver packageManager no
+# package.json). Mantê-lo fora da imagem evita que alguém volte a usar npm aqui.
+package-lock.json
+*.log
+.DS_Store
+.vscode
