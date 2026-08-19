@@ -1,4 +1,5 @@
 import 'package:get/get.dart';
+import 'package:ztm/src/components/dialogs/confirm_logout.dart';
 import 'package:ztm/src/models/movimentacao.dart';
 import 'package:ztm/src/services/api/auth/auth_service.dart';
 import 'package:ztm/src/services/api/movimentacao/movimentacao_api.dart';
@@ -48,7 +49,5 @@ class HomeController extends GetxController {
     _authService.changeFilial();
   }
 
-  void logout() {
-    _authService.logout();
-  }
+  Future<void> logout() => confirmAndLogout();
 }

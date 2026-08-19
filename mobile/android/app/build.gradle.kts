@@ -22,7 +22,12 @@ val keystoreProperties =
 
 android {
     namespace = "com.zztech.ztm"
-    compileSdk = flutter.compileSdkVersion
+    // Fixado em 37 porque o permission_handler_android 14 exige compilar
+    // contra a API 37, e o Flutter SDK ainda resolve 36. Só a compilação
+    // muda: `targetSdk` segue vindo do Flutter, sem alterar comportamento
+    // em runtime nem os aparelhos suportados.
+    // REMOVER QUANDO: o Flutter SDK subir compileSdkVersion para >= 37.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -32,7 +37,8 @@ android {
 
     defaultConfig {
         applicationId = "com.zztech.ztm"
-        // minSdk 24, targetSdk/compileSdk 36 — resolvidos pelo Flutter SDK.
+        // minSdk 24 e targetSdk 36 — resolvidos pelo Flutter SDK. O compileSdk é
+        // fixado acima em 37 por exigência do permission_handler_android.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

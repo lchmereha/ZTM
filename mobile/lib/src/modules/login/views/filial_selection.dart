@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:ztm/src/components/dialogs/confirm_logout.dart';
 import 'package:ztm/src/constants/constants.dart';
 import 'package:ztm/src/constants/sizes.dart';
 import 'package:ztm/src/modules/login/controllers/filial_selection.dart';
@@ -25,7 +26,7 @@ class FilialSelectionView extends StatelessWidget {
             IconButton(
               icon: const Icon(Icons.logout),
               tooltip: 'Sair / Logout',
-              onPressed: () => authService.logout(),
+              onPressed: confirmAndLogout,
             ),
           ],
         ),
@@ -76,7 +77,7 @@ class FilialSelectionView extends StatelessWidget {
                                 ),
                                 const SizedBox(height: Sizes.lg),
                                 ElevatedButton(
-                                  onPressed: () => authService.logout(),
+                                  onPressed: confirmAndLogout,
                                   child: const Text('Voltar para o Login'),
                                 ),
                               ],

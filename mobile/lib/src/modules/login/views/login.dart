@@ -59,6 +59,9 @@ class LoginView extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           spacing: Sizes.lg,
                           children: [
+                            // Caixa alta sempre: o backend normaliza `usuario`
+                            // para maiúsculas no NormalizeInterceptor, então
+                            // não há o que preservar em minúsculas aqui.
                             TextFormField(
                               autofocus: true,
                               controller: controller.userController,
@@ -101,12 +104,17 @@ class LoginView extends StatelessWidget {
                                     onPressed: controller.toggleObscure,
                                   ),
                                 ),
+                                // Sem `textCapitalization`: a senha é
+                                // case-sensitive (está em CASE_SENSITIVE_FIELDS
+                                // no backend) e forçar caixa alta atrapalhava.
+                                // Abrir em maiúsculas e depois obedecer o
+                                // usuário não é possível — o Flutter só
+                                // reenvia a configuração ao IME quando mudam
+                                // readOnly, obscureText ou keyboardType.
                                 keyboardType: TextInputType.visiblePassword,
                                 obscureText: controller.isObscure.value,
                                 onFieldSubmitted: (_) => controller.loginUser(),
                                 onTapOutside: (_) => Get.focusScope?.unfocus(),
-                                textCapitalization:
-                                    TextCapitalization.characters,
                                 textInputAction: TextInputAction.done,
                                 validator: controller.validatePassword,
                               );
