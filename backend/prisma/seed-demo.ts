@@ -319,33 +319,68 @@ export async function seedDemo(prisma: PrismaClient) {
   // As situações abaixo não são decorativas: findPendentes() só devolve estas
   // combinações de tipo/situação, e é essa lista que o app mobile mostra na
   // home. Fora delas o revisor loga e encontra a tela vazia.
-  const pendentes = [
+  //
+  // São 12 por fluxo, e não uma: 8 cards já preenchem a tela do coletor, então
+  // com 12 a lista rola. Um registro solitário por tela faz o app parecer
+  // vazio nas capturas da loja e na navegação do revisor.
+  const PENDENTES_POR_FLUXO = 12;
+
+  /**
+   * Monta as descrições de um fluxo. Elas precisam ser únicas porque o
+   * controle de idempotência abaixo identifica a movimentação por `descricao`.
+   */
+  const serie = (rotulo: string, contexto: (i: number) => string) =>
+    Array.from(
+      { length: PENDENTES_POR_FLUXO },
+      (_, i) => `${rotulo} — ${contexto(i)} (demo)`,
+    );
+
+  const fluxosPendentes = [
     {
       fluxo: 'IMPRESSAO',
       situacao: 'IMPORTADO' as const,
-      descricao: 'Impressão — lote de etiquetas (demo)',
+      descricoes: serie('Impressão', (i) => `lote de etiquetas OP ${1042 + i}`),
     },
     {
       fluxo: 'ASSOCIACAO',
       situacao: 'IMPORTADO' as const,
-      descricao: 'Associação — entrada de produção (demo)',
+      descricoes: serie(
+        'Associação',
+        (i) => `entrada de produção OP ${2130 + i}`,
+      ),
     },
     {
       fluxo: 'CONFERENCIA',
       situacao: 'IMPORTADO' as const,
-      descricao: 'Conferência — inventário Rua A (demo)',
+      descricoes: serie(
+        'Conferência',
+        // A..L — uma rua por movimentação.
+        (i) => `inventário Rua ${String.fromCharCode(65 + i)}`,
+      ),
     },
     {
       fluxo: 'TRANSFERENCIA',
       situacao: 'IMPORTADO' as const,
-      descricao: 'Transferência — Matriz → CD (demo)',
+      descricoes: serie('Transferência', (i) => `Matriz → CD, carga ${i + 1}`),
     },
     {
       fluxo: 'LEITURA',
       situacao: 'CRIADO' as const,
-      descricao: 'Leitura — baixa de expedição (demo)',
+      descricoes: serie('Leitura', (i) => `baixa de expedição NF ${8801 + i}`),
     },
   ];
+
+  const pendentes = fluxosPendentes.flatMap((f) =>
+    f.descricoes.map((descricao, i) => ({
+      fluxo: f.fluxo,
+      situacao: f.situacao,
+      descricao,
+      // Número de linhas e de peças variando por registro: cards todos com a
+      // mesma contagem denunciam massa gerada e deixam a tela artificial.
+      totalItens: 2 + (i % Math.min(4, produtos.length - 1)),
+      quantidade: 3 + (i % 5),
+    })),
+  );
 
   for (const p of pendentes) {
     const tipo = tipoPorFluxo[p.fluxo];
@@ -364,11 +399,11 @@ export async function seedDemo(prisma: PrismaClient) {
         situacao: p.situacao,
         descricao: p.descricao,
         importacaoItens: {
-          create: produtos.slice(0, 3).map((produto) => ({
+          create: produtos.slice(0, p.totalItens).map((produto) => ({
             codigo: produto.codigo,
             nome: produto.nome,
             unidadeMedida: produto.unidadeMedida,
-            quantidade: 4,
+            quantidade: p.quantidade,
           })),
         },
       },
@@ -398,7 +433,8 @@ export async function seedDemo(prisma: PrismaClient) {
   console.log(`   → Filiais: ${matriz.nome}, ${cd.nome}`);
   console.log(`   → ${produtos.length} produtos, ${tags.length} tags RFID`);
   console.log(
-    `   → ${pendentes.length} movimentações pendentes (uma por fluxo do app)`,
+    `   → ${pendentes.length} movimentações pendentes ` +
+      `(${PENDENTES_POR_FLUXO} por fluxo do app)`,
   );
 }
 

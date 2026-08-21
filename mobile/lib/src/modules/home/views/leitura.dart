@@ -111,9 +111,17 @@ class LeituraView extends StatelessWidget {
         ),
 
         // Scanned Tags List
+        //
+        // `scannedTags` é RxList: passar a referência não conta como leitura de
+        // observável, então este Obx não registrava dependência nenhuma. O GetX
+        // aborta nesse caso ("improper use of a GetX has been detected") e o
+        // erro derruba o CustomScrollView inteiro — no release a tela de
+        // Leitura ficava em branco. `toList()` percorre a lista aqui dentro,
+        // criando o vínculo, e ela volta a reconstruir a cada lote lido.
+        // (`.value` resolveria também, mas é `@protected` no RxList.)
         Obx(
           () => TagListSliver(
-            tags: controller.scannedTags,
+            tags: controller.scannedTags.toList(),
             validator: (t) {
               switch (t.status.value) {
                 case 'NAO_ENCONTRADA':

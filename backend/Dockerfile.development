@@ -3,6 +3,12 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 COPY . .
-RUN npx prisma generate
+# `prisma generate` só lê o schema, mas o prisma.config.ts resolve
+# env('DATABASE_URL') na carga e falha se ela não existir. Os .env não entram
+# na imagem (ver .dockerignore), então o placeholder cobre esta etapa — a URL
+# real chega em runtime pelo env_file. Mesmo tratamento do Dockerfile.production.
+RUN DATABASE_URL="mysql://build:build@localhost:3306/build" \
+    SHADOW_DATABASE_URL="mysql://build:build@localhost:3306/build_shadow" \
+    npx prisma generate
 EXPOSE 3000
 CMD ["sh", "-c", "npx prisma generate && npx prisma migrate deploy && npm run seed && npm run start:dev"]

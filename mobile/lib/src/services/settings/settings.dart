@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:rfid_reader/rfid_devices.dart';
 import 'package:ztm/src/constants/constants.dart';
+import 'package:ztm/src/services/environment/env_manager.dart';
 import 'package:ztm/src/services/log/log.dart';
 
 enum PrefEntry {
@@ -32,13 +33,22 @@ enum PrefEntry {
 abstract class _Defaults {
   const _Defaults._();
 
-  static const servidor = '';
+  // Os quatro campos de conexão vêm do EnvManager, que os resolve por
+  // `--dart-define` no momento do build. Sem essas variáveis eles valem
+  // exatamente o que valiam antes ('', '/', 'http', null), então um build de
+  // cliente continua abrindo sem servidor configurado.
+  //
+  // São só o valor inicial: `init()` lê o GetStorage primeiro e só cai aqui
+  // quando não há nada salvo, de modo que a configuração feita pelo operador
+  // nunca é sobrescrita.
+  static const servidor = EnvManager.serverHost;
+  static const endpoint = EnvManager.serverEndpoint;
+  static const httpProtocol = EnvManager.serverProtocol;
+  static const int? porta = EnvManager.serverPort;
+
   static const buzzer = true;
-  static const endpoint = '/';
-  static const httpProtocol = 'http';
   static const lotesDeLeitura = 100;
   static const pathAtualizacao = '';
-  static const int? porta = null;
   static const potencia = Constants.rfidPowerMax;
   static const RfidDevices? rfidDevice = null;
   static const rssiMinimo = 0.0;
@@ -61,7 +71,16 @@ class SettingsService extends GetxService {
     await GetStorage.init(_container);
 
     servidor.value = _box.read(PrefEntry.servidor.name) ?? _Defaults.servidor;
-    porta.value = _box.read(PrefEntry.porta.name);
+    // A porta é o único campo de conexão em que `null` é um valor legítimo
+    // ("porta padrão do esquema"), então `?? _Defaults.porta` não serve: ele
+    // não distingue "nunca configurado" de "configurado sem porta" e
+    // reaplicaria a porta do build por cima de uma escolha do operador. O
+    // fluxo de salvamento (QR e Manual) grava sempre a chave, mesmo nula, e o
+    // GetStorage mantém chaves nulas no mapa — logo a presença da chave é o
+    // sinal confiável de que o operador já configurou.
+    porta.value = _jaConfigurado(PrefEntry.porta)
+        ? _box.read(PrefEntry.porta.name)
+        : _Defaults.porta;
     endpoint.value = _box.read(PrefEntry.endpoint.name) ?? _Defaults.endpoint;
     httpProtocol.value =
         _box.read(PrefEntry.httpProtocol.name) ?? _Defaults.httpProtocol;
@@ -98,6 +117,12 @@ class SettingsService extends GetxService {
 
     return this;
   }
+
+  /// `true` se a chave já foi gravada alguma vez, mesmo que com valor nulo.
+  /// Diferente de `_box.hasData`, que devolve `false` para chave nula e por
+  /// isso não serve para distinguir "nunca salvo" de "salvo como vazio".
+  bool _jaConfigurado(PrefEntry entry) =>
+      _box.getKeys<Iterable<String>>().contains(entry.name);
 
   // ------------------------ Variáveis Reativas (.obs) ------------------------
   final servidor = _Defaults.servidor.obs;
